@@ -1,103 +1,89 @@
-# Developer Challenge
+# Blockbuster - On-chain Movie Ratings
 
-Build a DApp on using FireFly.
+A DApp built on [Hyperledger FireFly](https://hyperledger.github.io/firefly/latest/) for the Kaleido Developer Challenge.
 
-Fork this repo, choose a use case you think would be interesting to build as a decentralized application (DApp), then get creative and have fun.
+## The use case
 
-... and please **ask questions** - we don't want you to be stuck, and appreciate collaboration through the project.
+A blockchain-backed movie ratings system. Anyone can add a movie to the registry and rate it 1 to 5 stars. The trust properties come from the chain:
 
-## What is a DApp?
+- Every movie and every rating is an on-chain transaction, signed by a wallet.
+- The smart contract enforces **one rating per wallet per movie** - rating again replaces your previous vote instead of adding a new one, so no ballot stuffing.
+- Rating totals are aggregated on-chain, so the average score can be verified by anyone without trusting the app operator.
 
-- [Ethereum Foundation](https://ethereum.org/en/developers/docs/dapps/)
-  - Background of how DApps have evolved in the wild, and why
-- [DApps Build on Ethereum](https://ethereum.org/en/dapps/)
-  - All that's been built in the wonderful world of public Ethereum
-- [FireFly docs](https://docs.kaleido.io/kaleido-platform/full-stack/dapps/)
-  - DApps in an Enterprise context
+The UI includes a persona switcher (three demo wallets: alice, bob, and carol) so you can see the per-wallet rules in action: rate a movie as alice, switch to bob and rate it again, then watch the average update live. Change your mind and re-rate as the same persona - the contract swaps out your old vote without inflating the rating count.
 
-## What does done look like?
+Because the chain runs with a 2-second block period, ratings are not instantaneous. The UI leans into this rather than hiding it: submitted ratings show a "waiting for block confirmation" spinner until the blockchain event arrives over a live event stream.
 
-We would like your project to demonstrate your concept end-to-end, but it doesn't need to be a complete application.
+## Architecture
 
-It must:
+- **`solidity/`** - [`MovieRatings.sol`](solidity/contracts/MovieRatings.sol): the on-chain registry. Emits `MovieAdded` and `MovieRated` events. Unit-tested with Hardhat.
+- **`backend/`** - a backend-for-the-frontend. On startup it registers the contract ABI with FireFly as a contract interface + API and creates event listeners. It exposes a small REST API and forwards confirmed blockchain events to browsers over Server-Sent Events.
+- **`frontend/`** - React + Tailwind UI: movie grid, click-to-rate stars, persona switcher, and a live connection indicator.
 
-- Have a Web based frontend user experience which talks to your app's backend
-- Have a backend-for-the-frontend (BFF), that uses FireFly's API
-  - Note: An SDK including API wrappers and a WebSocket event listener is provided for Node.js and includes type definitions for TypeScript. You are not required to use it, but we strongly recommend it as it will save you a lot of time.
-- Use Hyperledger FireFly
-- Have on-chain Smart Contract logic, written in Solidity
-- Contain a README that gives a quick overview of the use case, and tells us how to run it
+All chain interaction goes through FireFly's API (via the [FireFly Node.js SDK](https://www.npmjs.com/package/@hyperledger/firefly-sdk)) - the backend never talks to the node directly.
 
-How much time you spend on each tier is down to you - depending on your interests and the skills you want to show.
+## How to run it
 
-> We've given you a basic, but functional, starting point for each layer of the stack.
-> ... and yes, we know the UI is a bit naff ;-)
+### Prerequisites
 
-## Some ideas
+- Docker (with Compose)
+- Node.js 16+
+- The [FireFly CLI](https://github.com/hyperledger/firefly-cli) - on macOS: `brew install firefly` (the binary may be named `firefly` instead of `ff`; the commands below work with either name)
 
-These are just ideas to give inspiration
+### 1. Create and start the FireFly stack
 
-Choose something/anything you think is interesting, and gives you license to focus on the bit of the stack you care about.
+```bash
+ff init dev-challenge 1 --block-period 2 --multiparty=false -t none --sandbox-enabled=false --firefly-base-port 8000 -m scripts/firefly-manifest-v1.3.2.json
+ff start dev-challenge
+```
 
-It's your choice whether you focus more on how things work under the covers, or how things feel in the UI/UX.
+Notes:
 
-- A blockchain backed ratings system for Movies
-- A racing simulation (you can even see one here in our [Racecourse sample](https://github.com/kaleido-io/racecourse))
-- A funky avatar generator, where each avatar is backed by a unique token
-- A conference ticketing system with camera & QR code integration
-- A digital collectable swag bag, earned by posting to social media
+- `--block-period 2` gives real-world-like block latency, per the challenge requirements.
+- `--firefly-base-port 8000` avoids macOS's AirPlay Receiver, which occupies the default port 5000. If you use a different port, update `HOST` in [`backend/config.json`](backend/config.json).
+- `--multiparty=false -t none --sandbox-enabled=false` runs a lean single-org gateway-mode stack - all this app needs.
+- `-m scripts/firefly-manifest-v1.3.2.json` pins the stack to the FireFly v1.3.2 release. At the time of writing, the CLI's default "latest" manifest references Docker images that are no longer available on `ghcr.io/hyperledger`, so the pin makes the setup reproducible.
 
-## Want more dev stack?
+### 2. Create the demo rater wallets
 
-Here are some dev technologies (not in the starter repo) that we love at Kaleido:
+```bash
+node scripts/setup-raters.mjs
+```
 
-- TailwindCSS or Material UI (or insert your favorite component library here) - at Kaleido we love re-use
-- GraphQL (Apollo) for front-end/back-end comms
-- WebSockets for live updating and notifications
-- PostgreSQL for relational data
-- MongoDB NoSQL database for configuration and local state
+This creates three accounts on the stack (if needed) and writes them into `backend/config.json` as the alice/bob/carol personas.
 
-Remember we'd like a thin thread through your DApp, so choose technologies you think you can be productive in.
+### 3. Compile, test, and deploy the smart contract
 
-Want to throw away most of the original `vite` + `express` based repo?
-No problem. Go for it.
+```bash
+cd solidity
+npm install
+npm test
+npx hardhat run scripts/deploy.ts --network firefly
+```
 
-## Setting up your FireFly on your machine
+The deploy script writes the contract address into `backend/config.json` automatically.
 
-1. Install the [FireFly CLI here](https://github.com/hyperledger/firefly-cli?tab=readme-ov-file#install-the-cli)
-2. Create a FireFly stack by running:
-   ```bash
-   ff init devChallenge --block-period 2 # Please set this. We expect you to use 2 second block period for this project (as real world blockchains are not instantaneous)
-   ```
-3. Start the FireFly stack by running:
-   ```bash
-   ff start dev
-   ```
-4. When you're done, you will have FireFly and all its microservices, including your very own private blockchain, running on your machine.
+### 4. Start the backend
 
-> If you are on Windows or Linux, please **make sure you read the** the hints and tips on [this page](https://hyperledger.github.io/firefly/latest/gettingstarted/firefly_cli/)
+```bash
+cd backend
+npm install
+npm start
+```
 
-If you run into issues, use the following resources to help:
+### 5. Start the frontend
 
-1. [FireFly Getting Started Guide](https://hyperledger.github.io/firefly/latest/gettingstarted/firefly_cli/)
-2. [FireFly CLI README](https://github.com/hyperledger/firefly-cli)
-3. Ask the team in Whatsapp!
+```bash
+cd frontend
+npm install
+npm start
+```
 
-## Getting this repo up and running
+Open [http://localhost:4000](http://localhost:4000). Add a movie, rate it as different personas, and watch confirmations arrive live. You can also see every transaction in the FireFly Explorer at [http://localhost:8000/ui](http://localhost:8000/ui).
 
-This repo has three directories in it:
+## Project layout
 
-- `solidity`: Two example solidity contracts that can be compiled, tested, and deployed with Hardhat. [Go to the Readme](./solidity/)
-- `backend`: A very simple TypeScript Node.js app that uses the FireFly SDK to interact with a custom smart contract. [Go to the Readme](./backen/)
-- `frontend`: A TypeScript React UI bootstrapped with [vite](https://vitejs.dev/guide/) that calls the API in the backend. [Go to the Readme](./frontend/)
-
-You will need to first deploy the example smart contracts with Hardhat to FireFly. Once the backend/frontend are started, the buttons on the Web UI will call the backend API endpoints to interact with the contracts through FireFly.
-
-![Backend](backend.png)
-![Frontend](frontend.png)
-
-## Your journey begins here
-
-Now it's your turn to build something! You can use this backend and frontend as a starting point for your app, or you can start from scratch if you want.
-
-You will find the [FireFly documentation](https://hyperledger.github.io/firefly/latest/) useful as you build this project.
+- [`solidity/`](solidity/) - contracts, Hardhat tests, deploy script
+- [`backend/`](backend/) - Express BFF using the FireFly SDK
+- [`frontend/`](frontend/) - React + Vite + Tailwind UI
+- [`scripts/`](scripts/) - stack setup helpers

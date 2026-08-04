@@ -1,0 +1,69 @@
+{
+  "ethconnect": {
+    "image": "ghcr.io/hyperledger/firefly-ethconnect",
+    "tag": "v3.3.2",
+    "sha": "bdbfa05a0bc1610813ba0ef65b2c8f9f7df4a5ead5643a580e3ba5927747c2cf"
+  },
+  "evmconnect": {
+    "image": "ghcr.io/hyperledger/firefly-evmconnect",
+    "tag": "v1.3.18",
+    "sha": "11a782c778227d198c0bff2fc94ad7e52ceea5a9994728ba05e781541680c32d"
+  },
+  "fabconnect": {
+    "image": "ghcr.io/hyperledger/firefly-fabconnect",
+    "tag": "v0.9.21",
+    "sha": "394262c5888fb6647a7b8b1f3f8d652e1db941b67e3c68bccfbedfa53c4d874d"
+  },
+  "tezosconnect": {
+    "image": "ghcr.io/hyperledger/firefly-tezosconnect",
+    "tag": "v0.2.7",
+    "sha": "cee6ecda8208e24989a6db2c1a2dd1b0defb89363e7728571b8858e794a295be"
+  },
+  "dataexchange-https": {
+    "image": "ghcr.io/hyperledger-firefly/dataexchange-https",
+    "tag": "v1.3.2",
+    "sha": "6b6a8df8845cd19d06ea2af0f58028bcd9d480a42bdc9cfe374e01346d89791a"
+  },
+  "tokens-erc1155": {
+    "image": "ghcr.io/hyperledger/firefly-tokens-erc1155",
+    "tag": "v1.3.3",
+    "sha": "5efbe76ce2c484d86e9e3cc2cfe3cee85d91ee8712b31dfc592a2de771749e78"
+  },
+  "tokens-erc20-erc721": {
+    "image": "ghcr.io/hyperledger/firefly-tokens-erc20-erc721",
+    "tag": "v1.3.3",
+    "sha": "5cfa10432c1cd885f3cbe5934799d692ba7186013e03a6b92bd6aa53ddf4f414"
+  },
+  "signer": {
+    "image": "ghcr.io/hyperledger/firefly-signer",
+    "tag": "v1.1.17",
+    "sha": "4391674f66dadb42ef29f3ea0ac62b130bad041675ff25ad3f8c7c0c8eda3854"
+  },
+  "build": {
+    "firefly-builder": {
+      "image": "golang:1.22-alpine3.19"
+    },
+    "fabric-builder": {
+      "image": "golang:1.22",
+      "platform": "linux/x86_64"
+    },
+    "solidity-builder": {
+      "image": "ethereum/solc:0.8.11-alpine"
+    },
+    "base": {
+      "image": "alpine:3.19"
+    }
+  },
+  "ui": {
+    "tag": "v1.3.1",
+    "release": "v1.3.1"
+  },
+  "cli": {
+    "tag": "v1.3.2"
+  },
+  "firefly": {
+    "image": "ghcr.io/hyperledger/firefly",
+    "tag": "v1.3.2",
+    "sha": "97cdea20221474cb86443664c25f4d501636551af4ad614d5486ae75bdbdeed6"
+  }
+}
