@@ -4,7 +4,7 @@ export type SessionKind = "admin" | "rater";
 
 export interface Session {
   kind: SessionKind;
-  rater?: string;
+  username?: string;
   address: string;
   expiresAt: number;
 }
@@ -22,11 +22,11 @@ export function createAdminSession(adminAddress: string): string {
   return token;
 }
 
-export function createRaterSession(rater: string, address: string): string {
+export function createRaterSession(username: string, address: string): string {
   const token = randomUUID();
   sessions.set(token, {
     kind: "rater",
-    rater,
+    username,
     address,
     expiresAt: Date.now() + TOKEN_TTL_MS,
   });

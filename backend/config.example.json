@@ -5,7 +5,5 @@
   "PORT": 4001,
   "MOVIE_RATINGS_ADDRESS": "",
   "ADMIN_ADDRESS": "",
-  "ADMIN_PASSWORD": "blockbuster",
-  "RATERS": {},
-  "RATER_PASSWORDS": {}
+  "ADMIN_PASSWORD": "blockbuster"
 }

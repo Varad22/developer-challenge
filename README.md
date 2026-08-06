@@ -10,7 +10,7 @@ A blockchain-backed movie ratings system. Anyone can add a movie to the registry
 - The smart contract enforces **one rating per wallet per movie** - rating again replaces your previous vote instead of adding a new one, so no ballot stuffing.
 - Rating totals are aggregated on-chain, so the average score can be verified by anyone without trusting the app operator.
 
-The UI includes a persona switcher (three demo wallets: alice, bob, and carol) so you can see the per-wallet rules in action: sign in as a rater, rate a movie as alice, switch to bob and rate it again, then watch the average update live. Change your mind and re-rate as the same persona - the contract swaps out your old vote without inflating the rating count.
+The UI has separate login flows for admins and raters. Raters register to receive their own FireFly wallet, then rate movies on-chain. Each wallet gets **one vote per movie** — rating again replaces your previous score. Switch accounts by logging out and signing in as another user to see per-wallet rules in action.
 
 Because the chain runs with a 2-second block period, ratings are not instantaneous. The UI leans into this rather than hiding it: submitted ratings show a "waiting for block confirmation" spinner until the blockchain event arrives over a live event stream.
 
@@ -30,13 +30,13 @@ All chain interaction goes through FireFly's API (via the [FireFly Node.js SDK](
 
 - Docker (with Compose)
 - Node.js 16+
-- The [FireFly CLI](https://github.com/hyperledger/firefly-cli) - on macOS: `brew install firefly` (the binary may be named `firefly` instead of `ff`; the commands below work with either name)
+- The [FireFly CLI](https://github.com/hyperledger/firefly-cli) - on macOS: `brew install firefly`. The binary is usually named `firefly` (some installs also provide `ff` as an alias).
 
 ### 1. Create and start the FireFly stack
 
 ```bash
-ff init dev-challenge 1 --block-period 2 --multiparty=false -t none --sandbox-enabled=false --firefly-base-port 8000 -m scripts/firefly-manifest-v1.3.2.json
-ff start dev-challenge
+firefly init dev-challenge 1 --block-period 2 --multiparty=false -t none --sandbox-enabled=false --firefly-base-port 8000 -m scripts/firefly-manifest-v1.3.2.json
+firefly start dev-challenge
 ```
 
 Notes:
@@ -52,12 +52,12 @@ Notes:
 npm run bootstrap
 ```
 
-This creates admin + rater accounts on the stack, deploys `MovieRatings`, updates `backend/config.json`, and writes a deployment artifact to `deployments/dev-challenge.json`.
+This creates the admin account, deploys `MovieRatings`, updates `backend/config.json`, and writes a deployment artifact to `deployments/dev-challenge.json`. Raters are **not** pre-created — they register through the app.
 
 You can still run the individual steps manually if you prefer:
 
 ```bash
-node scripts/setup-raters.mjs
+node scripts/setup-admin.mjs
 cd solidity && npm install && npm test
 npx hardhat run scripts/deploy.ts --network firefly
 ```
@@ -78,12 +78,12 @@ npm install
 npm start
 ```
 
-Open [http://localhost:4000](http://localhost:4000). Add a movie, sign in as different raters, and watch confirmations arrive live. You can also see every transaction in the FireFly Explorer at [http://localhost:8000/ui](http://localhost:8000/ui).
+Open [http://localhost:4000](http://localhost:4000). Register as a rater or sign in as admin, add movies, rate them, and watch confirmations arrive live. You can also see every transaction in the FireFly Explorer at [http://localhost:8000/ui](http://localhost:8000/ui).
 
 **Demo credentials**
 
 - Admin password: `blockbuster` (override with `ADMIN_PASSWORD` env var)
-- Rater passwords: `alice`, `bob`, `carol` (match persona names)
+- Raters: register in the app with any username (3+ chars) and password (6+ chars)
 
 Optional env overrides are documented in [`.env.example`](.env.example).
 

@@ -35,3 +35,6 @@ backend/config.json
 
 # Local deployment artifacts
 deployments/*.json
+
+# Registered rater accounts
+backend/data/

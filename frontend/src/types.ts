@@ -8,11 +8,6 @@ export interface Movie {
   myRating: number;
 }
 
-export interface Rater {
-  name: string;
-  address: string;
-}
-
 export interface ChainEvent {
   name: "MovieAdded" | "MovieRated";
   data: Record<string, string>;

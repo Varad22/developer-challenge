@@ -17,20 +17,22 @@ function MoviesPage({ session, onLogout }: MoviesPageProps) {
   const [connected, setConnected] = useState(false);
 
   const isAdmin = session.role === "admin";
-  const raterName = session.role === "rater" ? session.rater : undefined;
+  const username = session.role === "rater" ? session.username : undefined;
 
   const fetchMovies = useCallback(async () => {
-    const query = raterName
-      ? `?rater=${encodeURIComponent(raterName)}`
-      : "";
-    const res = await fetch(`/api/movies${query}`);
+    const headers: HeadersInit = {};
+    if (session.role === "rater") {
+      headers.Authorization = `Bearer ${session.token}`;
+    }
+
+    const res = await fetch("/api/movies", { headers });
     const body = await res.json();
     if (res.ok) {
       setMovies(body);
     } else {
       setErrorMsg(body.error);
     }
-  }, [raterName]);
+  }, [session]);
 
   useEffect(() => {
     fetchMovies();
@@ -118,7 +120,7 @@ function MoviesPage({ session, onLogout }: MoviesPageProps) {
             <p className="text-sm text-slate-400">
               {isAdmin
                 ? "Manage the on-chain movie catalog"
-                : `Rating as ${raterName}`}
+                : `Signed in as ${username}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -141,7 +143,7 @@ function MoviesPage({ session, onLogout }: MoviesPageProps) {
                   : "bg-emerald-500/10 text-emerald-300"
               }`}
             >
-              {isAdmin ? "admin" : raterName}
+              {isAdmin ? "admin" : username}
             </span>
             <button
               type="button"

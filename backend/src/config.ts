@@ -9,8 +9,6 @@ interface FileConfig {
   MOVIE_RATINGS_ADDRESS?: string;
   ADMIN_ADDRESS?: string;
   ADMIN_PASSWORD?: string;
-  RATERS?: Record<string, string>;
-  RATER_PASSWORDS?: Record<string, string>;
 }
 
 function loadFileConfig(): FileConfig {
@@ -36,10 +34,4 @@ export const config = {
   ADMIN_ADDRESS: process.env.ADMIN_ADDRESS ?? file.ADMIN_ADDRESS ?? "",
   ADMIN_PASSWORD:
     process.env.ADMIN_PASSWORD ?? file.ADMIN_PASSWORD ?? "blockbuster",
-  RATERS: file.RATERS ?? {},
-  RATER_PASSWORDS: file.RATER_PASSWORDS ?? {},
 };
-
-export function raterPassword(rater: string): string {
-  return config.RATER_PASSWORDS[rater] ?? rater;
-}

@@ -88,8 +88,5 @@ export function validateConfig(): string[] {
   if (!config.ADMIN_ADDRESS) {
     issues.push("ADMIN_ADDRESS is not set");
   }
-  if (Object.keys(config.RATERS).length === 0) {
-    issues.push("RATERS is empty");
-  }
   return issues;
 }

@@ -1,6 +1,6 @@
 import FireFly from "@hyperledger/firefly-sdk";
 import bodyparser from "body-parser";
-import express, { Request, Response } from "express";
+import express, { Response } from "express";
 import {
   bearerToken,
   createAdminSession,
@@ -9,8 +9,17 @@ import {
   isAdmin,
   isRater,
 } from "./auth";
-import { config, raterPassword } from "./config";
+import { config } from "./config";
+import { createStackAccount } from "./firefly-accounts";
 import { apiName, registerContract, validateConfig } from "./firefly-setup";
+import {
+  countUsers,
+  createUser,
+  findUser,
+  validatePassword,
+  validateUsername,
+  verifyPassword,
+} from "./users";
 
 const app = express();
 const firefly = new FireFly({
@@ -19,12 +28,11 @@ const firefly = new FireFly({
 });
 
 const contractApi = apiName();
-const raters: Record<string, string> = config.RATERS;
 
 app.use(bodyparser.json());
 
 // ---------------------------------------------------------------------------
-// Auth: admin and rater sessions gate who the backend signs for.
+// Auth
 // ---------------------------------------------------------------------------
 
 app.post("/api/login", (req, res) => {
@@ -36,25 +44,59 @@ app.post("/api/login", (req, res) => {
   }
 });
 
-app.post("/api/rater/login", (req, res) => {
-  const rater = String(req.body.rater ?? "");
+app.post("/api/rater/register", async (req, res) => {
+  const username = String(req.body.username ?? "").trim();
   const password = String(req.body.password ?? "");
-  const address = raters[rater];
 
-  if (!address) {
-    res.status(400).send({
-      error: `Unknown rater '${rater}'. Expected one of: ${Object.keys(raters).join(", ")}`,
+  const usernameError = validateUsername(username);
+  if (usernameError) {
+    res.status(400).send({ error: usernameError });
+    return;
+  }
+
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    res.status(400).send({ error: passwordError });
+    return;
+  }
+
+  if (findUser(username)) {
+    res.status(409).send({ error: "Username is already taken" });
+    return;
+  }
+
+  try {
+    const account = createStackAccount();
+    const user = createUser(username, password, account.address);
+    const token = createRaterSession(user.username, user.address);
+
+    res.status(201).send({
+      token,
+      username: user.username,
+      address: user.address,
     });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Registration failed";
+    res.status(500).send({ error: message });
+  }
+});
+
+app.post("/api/rater/login", (req, res) => {
+  const username = String(req.body.username ?? "").trim();
+  const password = String(req.body.password ?? "");
+  const user = findUser(username);
+
+  if (!user || !verifyPassword(password, user)) {
+    res.status(401).send({ error: "Invalid username or password" });
     return;
   }
 
-  if (password !== raterPassword(rater)) {
-    res.status(401).send({ error: "Wrong password" });
-    return;
-  }
-
-  const token = createRaterSession(rater, address);
-  res.send({ token, rater, address });
+  const token = createRaterSession(user.username, user.address);
+  res.send({
+    token,
+    username: user.username,
+    address: user.address,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -84,7 +126,7 @@ app.get("/api/health", async (_req, res) => {
       reachable: fireflyReachable,
     },
     contract: config.MOVIE_RATINGS_ADDRESS || null,
-    raters: Object.keys(raters),
+    registeredRaters: countUsers(),
     issues,
   });
 });
@@ -102,7 +144,7 @@ app.get("/api/operations/:id", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Server-Sent Events: pushes confirmed blockchain events to the frontend
+// Server-Sent Events
 // ---------------------------------------------------------------------------
 
 const sseClients = new Set<Response>();
@@ -129,16 +171,10 @@ function broadcast(name: string, data: any) {
 // REST API
 // ---------------------------------------------------------------------------
 
-app.get("/api/raters", (_req, res) => {
-  res.send(
-    Object.entries(raters).map(([name, address]) => ({ name, address }))
-  );
-});
-
 app.get("/api/movies", async (req, res) => {
   try {
-    const rater = req.query.rater ? String(req.query.rater) : undefined;
-    const raterKey = rater ? raters[rater] : undefined;
+    const session = getSession(bearerToken(req));
+    const raterKey = isRater(session) ? session?.address : undefined;
 
     const countRes = await firefly.queryContractAPI(contractApi, "getMovieCount", {
       input: {},
@@ -221,7 +257,7 @@ app.post("/api/movies/:movieId/ratings", async (req, res) => {
       },
       key: session.address,
     });
-    res.status(202).send({ id: fireflyRes.id, rater: session.rater });
+    res.status(202).send({ id: fireflyRes.id, username: session.username });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Unknown error";
     res.status(500).send({ error: message });

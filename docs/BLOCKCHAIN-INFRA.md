@@ -7,7 +7,7 @@ This document describes how the app bootstraps chain infrastructure locally, how
 ```mermaid
 flowchart TB
     Bootstrap["scripts/bootstrap.mjs"]
-    Setup["setup-raters.mjs"]
+    Setup["setup-admin.mjs"]
     Deploy["hardhat deploy.ts"]
     Backend["backend startup"]
     FireFly["FireFly stack + signer"]
@@ -31,15 +31,17 @@ npm run bootstrap
 This script:
 
 1. Creates `backend/config.json` from `config.example.json` if needed
-2. Creates admin + rater accounts on the stack and writes addresses to config
+2. Creates the admin FireFly account and writes its address to config
 3. Compiles, tests, and deploys `MovieRatings`
 4. Writes a deployment artifact to `deployments/<stack>.json`
+
+Raters register at runtime through the app; each registration creates a new FireFly wallet.
 
 Manual steps are still required once per machine:
 
 ```bash
-ff init dev-challenge 1 --block-period 2 --multiparty=false -t none --sandbox-enabled=false --firefly-base-port 8000 -m scripts/firefly-manifest-v1.3.2.json
-ff start dev-challenge
+firefly init dev-challenge 1 --block-period 2 --multiparty=false -t none --sandbox-enabled=false --firefly-base-port 8000 -m scripts/firefly-manifest-v1.3.2.json
+firefly start dev-challenge
 ```
 
 ### Runtime startup
@@ -62,12 +64,21 @@ Private keys live in FireFly's signer. The app only stores **addresses** in conf
 
 | Role | Key location | How the backend signs |
 |------|--------------|----------------------|
-| Admin | FireFly account 0 | After password login → session token → `key: ADMIN_ADDRESS` |
-| Rater | FireFly accounts 1–3 | After rater login → session token → `key: session.address` |
+| Admin | FireFly account 0 (bootstrap) | After password login → session token → `key: ADMIN_ADDRESS` |
+| Rater | FireFly account created on register | After login/register → session token → `key: session.address` |
+
+**Registration flow:**
+
+1. User picks a username/password in the app
+2. Backend creates a new FireFly wallet via `firefly accounts create`
+3. Credentials (scrypt hash) and wallet address are stored in `backend/data/users.json`
+4. User receives a session token and can immediately rate movies
 
 **Improvements over the original demo:**
 
-- Rater endpoints require a session token; you can no longer spoof `{ rater: "alice" }` without authenticating
+- Raters are not hardcoded — anyone can register
+- Passwords are hashed (scrypt); only wallet addresses are stored alongside usernames
+- Rater endpoints require a session token bound to the registered wallet
 - Admin password can be set via `ADMIN_PASSWORD` env var instead of config file
 - Sessions expire after 24 hours
 - `/api/health` reports config and FireFly connectivity issues at startup
@@ -75,7 +86,7 @@ Private keys live in FireFly's signer. The app only stores **addresses** in conf
 **Demo credentials:**
 
 - Admin password: `blockbuster` (or `ADMIN_PASSWORD`)
-- Rater passwords: match persona names (`alice`, `bob`, `carol`)
+- Raters: self-register in the app (username 3–32 chars, password 6+ chars)
 
 ### Production path
 
@@ -93,7 +104,8 @@ The smart contract already enforces `msg.sender` for ratings and admin-only movi
 
 | Source | Purpose |
 |--------|---------|
-| `backend/config.json` | Addresses, rater map, local defaults (gitignored) |
+| `backend/config.json` | Admin address, FireFly host, local defaults (gitignored) |
+| `backend/data/users.json` | Registered raters: username, password hash, wallet address (gitignored) |
 | `.env` / env vars | Secrets and environment overrides |
 | `deployments/<stack>.json` | Deploy artifact: contract address, admin, timestamp |
 
@@ -109,7 +121,8 @@ Env vars (see `.env.example`):
 |----------|---------|
 | `GET /api/health` | FireFly reachability + config validation |
 | `GET /api/operations/:id` | Poll FireFly operation status for a submitted tx |
-| `POST /api/rater/login` | Authenticate a rater persona; returns signing session token |
+| `POST /api/rater/register` | Create account + FireFly wallet; returns session token |
+| `POST /api/rater/login` | Authenticate a registered rater; returns session token |
 
 Rating submission (`POST /api/movies/:id/ratings`) now requires `Authorization: Bearer <rater-token>` and signs with the authenticated wallet only.
 

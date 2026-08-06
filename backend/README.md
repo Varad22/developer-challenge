@@ -15,5 +15,5 @@ npm start
 
 ## Who is making all these blockchain transactions?
 
-This might help: `ff accounts list <StackName>`
+This might help: `firefly accounts list <StackName>`
 With further [docs here](https://hyperledger.github.io/firefly/latest/reference/identities/)

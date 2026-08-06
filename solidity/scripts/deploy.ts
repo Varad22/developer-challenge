@@ -7,7 +7,7 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
   if (!config.ADMIN_ADDRESS) {
     throw new Error(
-      "ADMIN_ADDRESS missing from backend/config.json - run scripts/setup-raters.mjs first"
+      "ADMIN_ADDRESS missing from backend/config.json - run scripts/setup-admin.mjs first"
     );
   }
 

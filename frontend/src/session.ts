@@ -1,6 +1,6 @@
 export type Session =
   | { role: "admin"; token: string }
-  | { role: "rater"; token: string; rater: string };
+  | { role: "rater"; token: string; username: string };
 
 const SESSION_KEY = "session";
 
@@ -15,7 +15,7 @@ export function loadSession(): Session | null {
     if (session.role === "admin" && session.token) {
       return session;
     }
-    if (session.role === "rater" && session.token && session.rater) {
+    if (session.role === "rater" && session.token && session.username) {
       return session;
     }
   } catch {
