@@ -35,6 +35,29 @@ function listAccounts(cli: string): StackAccount[] {
   );
 }
 
+export function listStackAccounts(): StackAccount[] {
+  return listAccounts(detectCli());
+}
+
+export function walletExistsOnStack(address: string): boolean {
+  const normalized = address.toLowerCase();
+  return listStackAccounts().some(
+    (account) => account.address.toLowerCase() === normalized
+  );
+}
+
+/** Returns a stack wallet address, creating a new one if the old key was lost (e.g. after firefly reset). */
+export function ensureWalletOnStack(address: string): StackAccount {
+  if (walletExistsOnStack(address)) {
+    return { address };
+  }
+
+  console.warn(
+    `Wallet ${address} is not on the FireFly stack; provisioning a new account.`
+  );
+  return createStackAccount();
+}
+
 export function createStackAccount(): StackAccount {
   const cli = detectCli();
   const before = listAccounts(cli);

@@ -10,14 +10,15 @@ import {
   isRater,
 } from "./auth";
 import { config } from "./config";
-import { createStackAccount } from "./firefly-accounts";
-import { apiName, registerContract, validateConfig } from "./firefly-setup";
+import { createStackAccount, ensureWalletOnStack } from "./firefly-accounts";
+import { apiName, friendlyFireflyError, registerContract, validateConfig } from "./firefly-setup";
 import {
   countUsers,
   createUser,
   findUser,
   validatePassword,
   validateUsername,
+  updateUserAddress,
   verifyPassword,
 } from "./users";
 
@@ -84,11 +85,19 @@ app.post("/api/rater/register", async (req, res) => {
 app.post("/api/rater/login", (req, res) => {
   const username = String(req.body.username ?? "").trim();
   const password = String(req.body.password ?? "");
-  const user = findUser(username);
+  let user = findUser(username);
 
   if (!user || !verifyPassword(password, user)) {
     res.status(401).send({ error: "Invalid username or password" });
     return;
+  }
+
+  const wallet = ensureWalletOnStack(user.address);
+  if (wallet.address.toLowerCase() !== user.address.toLowerCase()) {
+    user = updateUserAddress(user.username, wallet.address);
+    console.log(
+      `Re-provisioned wallet for '${user.username}': ${wallet.address}`
+    );
   }
 
   const token = createRaterSession(user.username, user.address);
@@ -213,8 +222,7 @@ app.get("/api/movies", async (req, res) => {
 
     res.send(movies);
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    res.status(500).send({ error: message });
+    res.status(500).send({ error: friendlyFireflyError(e) });
   }
 });
 
@@ -243,12 +251,21 @@ app.post("/api/movies", async (req, res) => {
 
 app.post("/api/movies/:movieId/ratings", async (req, res) => {
   const session = getSession(bearerToken(req));
-  if (!isRater(session) || !session?.address) {
+  if (!isRater(session) || !session?.address || !session.username) {
     res.status(401).send({ error: "Sign in as a rater to submit ratings" });
     return;
   }
 
   try {
+    const wallet = ensureWalletOnStack(session.address);
+    if (wallet.address.toLowerCase() !== session.address.toLowerCase()) {
+      session.address = wallet.address;
+      updateUserAddress(session.username, wallet.address);
+      console.log(
+        `Re-provisioned wallet for '${session.username}': ${wallet.address}`
+      );
+    }
+
     const { stars } = req.body;
     const fireflyRes = await firefly.invokeContractAPI(contractApi, "rateMovie", {
       input: {

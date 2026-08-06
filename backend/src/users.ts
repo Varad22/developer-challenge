@@ -103,3 +103,17 @@ export function createUser(
   saveUsers(users);
   return user;
 }
+
+export function updateUserAddress(username: string, address: string): StoredUser {
+  const normalized = username.toLowerCase();
+  const users = loadUsers();
+  const index = users.findIndex((user) => user.username === normalized);
+
+  if (index === -1) {
+    throw new Error(`User '${username}' not found`);
+  }
+
+  users[index] = { ...users[index], address };
+  saveUsers(users);
+  return users[index];
+}

@@ -80,6 +80,40 @@ function MoviesPage({ session, onLogout }: MoviesPageProps) {
     }
   }
 
+  async function clearPending(movieId: number) {
+    setPendingRatings((prev) => {
+      const next = new Set(prev);
+      next.delete(movieId);
+      return next;
+    });
+  }
+
+  async function waitForOperation(operationId: string, movieId: number) {
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const res = await fetch(`/api/operations/${operationId}`);
+      if (!res.ok) {
+        continue;
+      }
+      const op = await res.json();
+      if (op.status === "Succeeded") {
+        await clearPending(movieId);
+        await fetchMovies();
+        return;
+      }
+      if (op.status === "Failed") {
+        setErrorMsg(op.error || "Blockchain transaction failed");
+        await clearPending(movieId);
+        return;
+      }
+    }
+    setErrorMsg(
+      "Timed out waiting for block confirmation. Log out and sign in again if you reset FireFly recently."
+    );
+    await clearPending(movieId);
+  }
+
   async function rateMovie(movieId: number, stars: number) {
     if (session.role !== "rater") {
       return;
@@ -98,14 +132,16 @@ function MoviesPage({ session, onLogout }: MoviesPageProps) {
     if (!res.ok) {
       const { error } = await res.json();
       setErrorMsg(error);
-      setPendingRatings((prev) => {
-        const next = new Set(prev);
-        next.delete(movieId);
-        return next;
-      });
+      await clearPending(movieId);
       if (res.status === 401) {
         onLogout();
       }
+      return;
+    }
+
+    const { id } = await res.json();
+    if (id) {
+      void waitForOperation(id, movieId);
     }
   }
 

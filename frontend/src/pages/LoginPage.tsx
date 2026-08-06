@@ -197,7 +197,17 @@ function LoginPage({ onLogin }: LoginPageProps) {
             />
           )}
 
-          {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+          {error && (
+            <p className="mb-3 text-sm text-red-400">
+              {error}
+              {error === "Username is already taken" && (
+                <span className="block mt-1 text-slate-400">
+                  Switch to <strong className="text-slate-300">Sign in</strong> if you
+                  registered this username before.
+                </span>
+              )}
+            </p>
+          )}
 
           <button
             type="submit"
