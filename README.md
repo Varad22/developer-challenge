@@ -10,17 +10,19 @@ A blockchain-backed movie ratings system. Anyone can add a movie to the registry
 - The smart contract enforces **one rating per wallet per movie** - rating again replaces your previous vote instead of adding a new one, so no ballot stuffing.
 - Rating totals are aggregated on-chain, so the average score can be verified by anyone without trusting the app operator.
 
-The UI includes a persona switcher (three demo wallets: alice, bob, and carol) so you can see the per-wallet rules in action: rate a movie as alice, switch to bob and rate it again, then watch the average update live. Change your mind and re-rate as the same persona - the contract swaps out your old vote without inflating the rating count.
+The UI includes a persona switcher (three demo wallets: alice, bob, and carol) so you can see the per-wallet rules in action: sign in as a rater, rate a movie as alice, switch to bob and rate it again, then watch the average update live. Change your mind and re-rate as the same persona - the contract swaps out your old vote without inflating the rating count.
 
 Because the chain runs with a 2-second block period, ratings are not instantaneous. The UI leans into this rather than hiding it: submitted ratings show a "waiting for block confirmation" spinner until the blockchain event arrives over a live event stream.
 
 ## Architecture
 
 - **`solidity/`** - [`MovieRatings.sol`](solidity/contracts/MovieRatings.sol): the on-chain registry. Emits `MovieAdded` and `MovieRated` events. Unit-tested with Hardhat.
-- **`backend/`** - a backend-for-the-frontend. On startup it registers the contract ABI with FireFly as a contract interface + API and creates event listeners. It exposes a small REST API and forwards confirmed blockchain events to browsers over Server-Sent Events.
-- **`frontend/`** - React + Tailwind UI: movie grid, click-to-rate stars, persona switcher, and a live connection indicator.
+- **`backend/`** - a backend-for-the-frontend. On startup it registers the contract ABI with FireFly as a contract interface + API and creates event listeners. It exposes a REST API (including health checks and operation status), gates signing behind admin/rater sessions, and forwards confirmed blockchain events to browsers over Server-Sent Events.
+- **`frontend/`** - React + Tailwind UI: movie grid, click-to-rate stars, persona switcher with rater login, and a live connection indicator.
+- **`scripts/`** - bootstrap helpers: account setup, one-shot deploy orchestration.
+- **`docs/BLOCKCHAIN-INFRA.md`** - deeper notes on bootstrap, key management, and production deployment considerations.
 
-All chain interaction goes through FireFly's API (via the [FireFly Node.js SDK](https://www.npmjs.com/package/@hyperledger/firefly-sdk)) - the backend never talks to the node directly.
+All chain interaction goes through FireFly's API (via the [FireFly Node.js SDK](https://www.npmjs.com/package/@hyperledger/firefly-sdk)) - the backend never talks to the node directly. Private keys stay in FireFly's signer; the app stores addresses and authenticates who the backend may sign for.
 
 ## How to run it
 
@@ -44,26 +46,23 @@ Notes:
 - `--multiparty=false -t none --sandbox-enabled=false` runs a lean single-org gateway-mode stack - all this app needs.
 - `-m scripts/firefly-manifest-v1.3.2.json` pins the stack to the FireFly v1.3.2 release. At the time of writing, the CLI's default "latest" manifest references Docker images that are no longer available on `ghcr.io/hyperledger`, so the pin makes the setup reproducible.
 
-### 2. Create the demo rater wallets
+### 2. Bootstrap accounts, deploy contract, and write config
+
+```bash
+npm run bootstrap
+```
+
+This creates admin + rater accounts on the stack, deploys `MovieRatings`, updates `backend/config.json`, and writes a deployment artifact to `deployments/dev-challenge.json`.
+
+You can still run the individual steps manually if you prefer:
 
 ```bash
 node scripts/setup-raters.mjs
-```
-
-This creates three accounts on the stack (if needed) and writes them into `backend/config.json` as the alice/bob/carol personas.
-
-### 3. Compile, test, and deploy the smart contract
-
-```bash
-cd solidity
-npm install
-npm test
+cd solidity && npm install && npm test
 npx hardhat run scripts/deploy.ts --network firefly
 ```
 
-The deploy script writes the contract address into `backend/config.json` automatically.
-
-### 4. Start the backend
+### 3. Start the backend
 
 ```bash
 cd backend
@@ -71,7 +70,7 @@ npm install
 npm start
 ```
 
-### 5. Start the frontend
+### 4. Start the frontend
 
 ```bash
 cd frontend
@@ -79,11 +78,19 @@ npm install
 npm start
 ```
 
-Open [http://localhost:4000](http://localhost:4000). Add a movie, rate it as different personas, and watch confirmations arrive live. You can also see every transaction in the FireFly Explorer at [http://localhost:8000/ui](http://localhost:8000/ui).
+Open [http://localhost:4000](http://localhost:4000). Add a movie, sign in as different raters, and watch confirmations arrive live. You can also see every transaction in the FireFly Explorer at [http://localhost:8000/ui](http://localhost:8000/ui).
+
+**Demo credentials**
+
+- Admin password: `blockbuster` (override with `ADMIN_PASSWORD` env var)
+- Rater passwords: `alice`, `bob`, `carol` (match persona names)
+
+Optional env overrides are documented in [`.env.example`](.env.example).
 
 ## Project layout
 
 - [`solidity/`](solidity/) - contracts, Hardhat tests, deploy script
 - [`backend/`](backend/) - Express BFF using the FireFly SDK
 - [`frontend/`](frontend/) - React + Vite + Tailwind UI
-- [`scripts/`](scripts/) - stack setup helpers
+- [`scripts/`](scripts/) - bootstrap and account setup helpers
+- [`docs/BLOCKCHAIN-INFRA.md`](docs/BLOCKCHAIN-INFRA.md) - blockchain bootstrap, keys, and production notes

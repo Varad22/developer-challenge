@@ -1,9 +1,16 @@
 import FireFly from "@hyperledger/firefly-sdk";
 import bodyparser from "body-parser";
-import { randomUUID } from "crypto";
 import express, { Request, Response } from "express";
-import movieRatings from "../../solidity/artifacts/contracts/MovieRatings.sol/MovieRatings.json";
-import config from "../config.json";
+import {
+  bearerToken,
+  createAdminSession,
+  createRaterSession,
+  getSession,
+  isAdmin,
+  isRater,
+} from "./auth";
+import { config, raterPassword } from "./config";
+import { apiName, registerContract, validateConfig } from "./firefly-setup";
 
 const app = express();
 const firefly = new FireFly({
@@ -11,34 +18,86 @@ const firefly = new FireFly({
   namespace: config.NAMESPACE,
 });
 
-const ffiName = `movieRatingsFFI-${config.VERSION}`;
-const apiName = `movieRatingsApi-${config.VERSION}`;
-
-// Named demo wallets (address per persona). Each wallet can rate a movie once.
+const contractApi = apiName();
 const raters: Record<string, string> = config.RATERS;
 
 app.use(bodyparser.json());
 
 // ---------------------------------------------------------------------------
-// Admin auth: only the admin account may add movies. The contract enforces
-// this on-chain (msg.sender == admin); this login gates who can make the
-// backend sign with the admin key.
+// Auth: admin and rater sessions gate who the backend signs for.
 // ---------------------------------------------------------------------------
-
-const adminTokens = new Set<string>();
-
-function isAdmin(req: Request): boolean {
-  const token = req.headers.authorization?.replace(/^Bearer /, "");
-  return token !== undefined && adminTokens.has(token);
-}
 
 app.post("/api/login", (req, res) => {
   if (req.body.password === config.ADMIN_PASSWORD) {
-    const token = randomUUID();
-    adminTokens.add(token);
+    const token = createAdminSession(config.ADMIN_ADDRESS);
     res.send({ token });
   } else {
     res.status(401).send({ error: "Wrong password" });
+  }
+});
+
+app.post("/api/rater/login", (req, res) => {
+  const rater = String(req.body.rater ?? "");
+  const password = String(req.body.password ?? "");
+  const address = raters[rater];
+
+  if (!address) {
+    res.status(400).send({
+      error: `Unknown rater '${rater}'. Expected one of: ${Object.keys(raters).join(", ")}`,
+    });
+    return;
+  }
+
+  if (password !== raterPassword(rater)) {
+    res.status(401).send({ error: "Wrong password" });
+    return;
+  }
+
+  const token = createRaterSession(rater, address);
+  res.send({ token, rater, address });
+});
+
+// ---------------------------------------------------------------------------
+// Health and operation status
+// ---------------------------------------------------------------------------
+
+app.get("/api/health", async (_req, res) => {
+  const issues = validateConfig();
+  let fireflyReachable = false;
+
+  try {
+    const statusRes = await fetch(`${config.HOST}/api/v1/status`);
+    fireflyReachable = statusRes.ok;
+    if (!statusRes.ok) {
+      issues.push("FireFly status check failed");
+    }
+  } catch {
+    issues.push(`FireFly unreachable at ${config.HOST}`);
+  }
+
+  const ok = issues.length === 0 && fireflyReachable;
+  res.status(ok ? 200 : 503).send({
+    status: ok ? "ok" : "degraded",
+    firefly: {
+      host: config.HOST,
+      namespace: config.NAMESPACE,
+      reachable: fireflyReachable,
+    },
+    contract: config.MOVIE_RATINGS_ADDRESS || null,
+    raters: Object.keys(raters),
+    issues,
+  });
+});
+
+app.get("/api/operations/:id", async (req, res) => {
+  try {
+    const url = `${config.HOST}/api/v1/namespaces/${config.NAMESPACE}/operations/${req.params.id}`;
+    const ffRes = await fetch(url);
+    const body = await ffRes.json();
+    res.status(ffRes.status).send(body);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    res.status(502).send({ error: message });
   }
 });
 
@@ -55,8 +114,6 @@ app.get("/api/events", (req, res) => {
     Connection: "keep-alive",
   });
   res.flushHeaders();
-  // An initial comment makes proxies (e.g. the Vite dev server) flush the
-  // response headers through to the browser right away.
   res.write(": connected\n\n");
   sseClients.add(res);
   req.on("close", () => sseClients.delete(res));
@@ -72,37 +129,25 @@ function broadcast(name: string, data: any) {
 // REST API
 // ---------------------------------------------------------------------------
 
-app.get("/api/raters", (req, res) => {
+app.get("/api/raters", (_req, res) => {
   res.send(
     Object.entries(raters).map(([name, address]) => ({ name, address }))
   );
 });
-
-function resolveRaterKey(rater: unknown): string {
-  const key = raters[String(rater)];
-  if (!key) {
-    throw new Error(
-      `Unknown rater '${rater}'. Expected one of: ${Object.keys(raters).join(
-        ", "
-      )}`
-    );
-  }
-  return key;
-}
 
 app.get("/api/movies", async (req, res) => {
   try {
     const rater = req.query.rater ? String(req.query.rater) : undefined;
     const raterKey = rater ? raters[rater] : undefined;
 
-    const countRes = await firefly.queryContractAPI(apiName, "getMovieCount", {
+    const countRes = await firefly.queryContractAPI(contractApi, "getMovieCount", {
       input: {},
     });
     const count = Number((countRes as any).output);
 
     const movies = await Promise.all(
       Array.from({ length: count }, async (_, movieId) => {
-        const movie: any = await firefly.queryContractAPI(apiName, "getMovie", {
+        const movie: any = await firefly.queryContractAPI(contractApi, "getMovie", {
           input: { movieId },
         });
         const ratingTotal = Number(movie.ratingTotal);
@@ -111,7 +156,7 @@ app.get("/api/movies", async (req, res) => {
         let myRating = 0;
         if (raterKey) {
           const ratingRes: any = await firefly.queryContractAPI(
-            apiName,
+            contractApi,
             "getRating",
             { input: { movieId, rater: raterKey } }
           );
@@ -131,19 +176,22 @@ app.get("/api/movies", async (req, res) => {
     );
 
     res.send(movies);
-  } catch (e: any) {
-    res.status(500).send({ error: e.message });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    res.status(500).send({ error: message });
   }
 });
 
 app.post("/api/movies", async (req, res) => {
-  if (!isAdmin(req)) {
+  const session = getSession(bearerToken(req));
+  if (!isAdmin(session)) {
     res.status(401).send({ error: "Only the admin can add movies" });
     return;
   }
+
   try {
     const { title, year } = req.body;
-    const fireflyRes = await firefly.invokeContractAPI(apiName, "addMovie", {
+    const fireflyRes = await firefly.invokeContractAPI(contractApi, "addMovie", {
       input: {
         title,
         year: Number(year) || 0,
@@ -151,92 +199,48 @@ app.post("/api/movies", async (req, res) => {
       key: config.ADMIN_ADDRESS,
     });
     res.status(202).send({ id: fireflyRes.id });
-  } catch (e: any) {
-    res.status(500).send({ error: e.message });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    res.status(500).send({ error: message });
   }
 });
 
 app.post("/api/movies/:movieId/ratings", async (req, res) => {
+  const session = getSession(bearerToken(req));
+  if (!isRater(session) || !session?.address) {
+    res.status(401).send({ error: "Sign in as a rater to submit ratings" });
+    return;
+  }
+
   try {
-    const { stars, rater } = req.body;
-    const fireflyRes = await firefly.invokeContractAPI(apiName, "rateMovie", {
+    const { stars } = req.body;
+    const fireflyRes = await firefly.invokeContractAPI(contractApi, "rateMovie", {
       input: {
         movieId: Number(req.params.movieId),
         stars: Number(stars),
       },
-      key: resolveRaterKey(rater),
+      key: session.address,
     });
-    res.status(202).send({ id: fireflyRes.id });
-  } catch (e: any) {
-    res.status(500).send({ error: e.message });
+    res.status(202).send({ id: fireflyRes.id, rater: session.rater });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    res.status(500).send({ error: message });
   }
 });
 
 // ---------------------------------------------------------------------------
-// FireFly setup: register the contract interface, API, and event listeners
+// Startup
 // ---------------------------------------------------------------------------
 
 async function init() {
-  await firefly
-    .generateContractInterface({
-      name: ffiName,
-      namespace: config.NAMESPACE,
-      version: "1.0",
-      description: "Deployed MovieRatings contract",
-      input: {
-        abi: movieRatings.abi,
-      },
-    })
-    .then(async (generatedFFI) => {
-      if (!generatedFFI) return;
-      return await firefly.createContractInterface(generatedFFI, {
-        confirm: true,
-      });
-    })
-    .then(async (contractInterface) => {
-      if (!contractInterface) return;
-      return await firefly.createContractAPI(
-        {
-          interface: {
-            id: contractInterface.id,
-          },
-          location: {
-            address: config.MOVIE_RATINGS_ADDRESS,
-          },
-          name: apiName,
-        },
-        { confirm: true }
-      );
-    })
-    .catch((e) => {
-      const err = JSON.parse(JSON.stringify(e.originalError));
-
-      if (err.status === 409) {
-        console.log(`'${ffiName}' already exists in FireFly. Ignoring.`);
-      } else {
-        throw e;
-      }
-    });
-
-  for (const eventName of ["MovieAdded", "MovieRated"]) {
-    await firefly
-      .createContractAPIListener(apiName, eventName, {
-        topic: eventName.toLowerCase(),
-      })
-      .catch((e) => {
-        const err = JSON.parse(JSON.stringify(e.originalError));
-
-        if (err.status === 409) {
-          console.log(
-            `'${eventName}' event listener already exists in FireFly. Ignoring.`
-          );
-        } else {
-          console.log(
-            `Error creating listener for '${eventName}' event: ${err.message}`
-          );
-        }
-      });
+  const configIssues = validateConfig();
+  if (configIssues.length > 0) {
+    console.warn("Configuration issues detected:");
+    configIssues.forEach((issue) => console.warn(`  - ${issue}`));
+    console.warn("Run: node scripts/bootstrap.mjs");
   }
+
+  await registerContract(firefly);
 
   firefly.listen(
     {
@@ -244,7 +248,7 @@ async function init() {
         events: "blockchain_event_received",
       },
     },
-    async (socket, event) => {
+    async (_socket, event) => {
       const name = event.blockchainEvent?.name;
       if (name === "MovieAdded" || name === "MovieRated") {
         console.log(`${name}: ${JSON.stringify(event.blockchainEvent?.output)}`);

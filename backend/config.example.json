@@ -6,5 +6,6 @@
   "MOVIE_RATINGS_ADDRESS": "",
   "ADMIN_ADDRESS": "",
   "ADMIN_PASSWORD": "blockbuster",
-  "RATERS": {}
+  "RATERS": {},
+  "RATER_PASSWORDS": {}
 }

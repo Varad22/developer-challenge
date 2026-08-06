@@ -1,0 +1,7 @@
+{
+  "name": "developer-challenge",
+  "private": true,
+  "scripts": {
+    "bootstrap": "node scripts/bootstrap.mjs"
+  }
+}

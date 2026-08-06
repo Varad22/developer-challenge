@@ -32,3 +32,6 @@ typechain-types/
 
 # Local backend config
 backend/config.json
+
+# Local deployment artifacts
+deployments/*.json
