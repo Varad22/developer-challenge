@@ -4,6 +4,7 @@
   "VERSION": "1.2",
   "PORT": 4001,
   "MOVIE_RATINGS_ADDRESS": "",
+  "USER_REGISTRY_ADDRESS": "",
   "ADMIN_ADDRESS": "",
   "ADMIN_PASSWORD": "blockbuster"
 }

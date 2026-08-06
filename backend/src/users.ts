@@ -1,44 +1,26 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import fs from "fs";
-import path from "path";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
+import FireFly from "@hyperledger/firefly-sdk";
+import { config } from "./config";
+import { userRegistryApiName } from "./user-registry-setup";
 
-export interface StoredUser {
+export interface ChainUser {
   username: string;
+  address: string;
   passwordHash: string;
   salt: string;
-  address: string;
-  createdAt: string;
 }
 
-const dataDir = path.join(__dirname, "..", "data");
-const usersPath = path.join(dataDir, "users.json");
-
-function ensureDataDir(): void {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-}
-
-function loadUsers(): StoredUser[] {
-  ensureDataDir();
-  if (!fs.existsSync(usersPath)) {
-    return [];
-  }
-
-  return JSON.parse(fs.readFileSync(usersPath, "utf8")) as StoredUser[];
-}
-
-function saveUsers(users: StoredUser[]): void {
-  ensureDataDir();
-  fs.writeFileSync(usersPath, JSON.stringify(users, null, 2) + "\n");
+function normalizeUsername(username: string): string {
+  return username.toLowerCase();
 }
 
 export function validateUsername(username: string): string | null {
-  if (username.length < 3 || username.length > 32) {
+  const normalized = normalizeUsername(username);
+  if (normalized.length < 3 || normalized.length > 32) {
     return "Username must be 3-32 characters";
   }
 
-  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+  if (!/^[a-z0-9_]+$/.test(normalized)) {
     return "Username may only contain letters, numbers, and underscores";
   }
 
@@ -53,67 +35,112 @@ export function validatePassword(password: string): string | null {
   return null;
 }
 
-function hashPassword(password: string, salt: string): string {
-  return scryptSync(password, salt, 64).toString("hex");
+function hashPassword(password: string, saltHex: string): Buffer {
+  const salt = Buffer.from(saltHex.replace(/^0x/, ""), "hex");
+  return createHash("sha256").update(Buffer.concat([salt, Buffer.from(password)])).digest();
 }
 
-export function findUser(username: string): StoredUser | undefined {
-  const normalized = username.toLowerCase();
-  return loadUsers().find((user) => user.username === normalized);
+function randomSaltHex(): string {
+  return `0x${randomBytes(32).toString("hex")}`;
 }
 
-export function countUsers(): number {
-  return loadUsers().length;
+function toHex(value: string): string {
+  return value.startsWith("0x") ? value : `0x${value}`;
 }
 
-export function verifyPassword(password: string, user: StoredUser): boolean {
+export function verifyPassword(password: string, user: ChainUser): boolean {
   const hash = hashPassword(password, user.salt);
-  const left = Buffer.from(hash, "hex");
-  const right = Buffer.from(user.passwordHash, "hex");
+  const expected = Buffer.from(user.passwordHash.replace(/^0x/, ""), "hex");
 
-  if (left.length !== right.length) {
+  if (hash.length !== expected.length) {
     return false;
   }
 
-  return timingSafeEqual(left, right);
+  return timingSafeEqual(hash, expected);
 }
 
-export function createUser(
+export async function findUser(
+  firefly: FireFly,
+  username: string
+): Promise<ChainUser | undefined> {
+  try {
+    const res: any = await firefly.queryContractAPI(
+      userRegistryApiName(),
+      "getAccount",
+      { input: { username: normalizeUsername(username) } }
+    );
+
+    return {
+      username: normalizeUsername(username),
+      address: res.wallet,
+      passwordHash: toHex(res.passwordHash),
+      salt: toHex(res.salt),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function countUsers(firefly: FireFly): Promise<number> {
+  try {
+    const res: any = await firefly.queryContractAPI(
+      userRegistryApiName(),
+      "userCount",
+      { input: {} }
+    );
+    return Number(res.output ?? res);
+  } catch {
+    return 0;
+  }
+}
+
+export async function registerUser(
+  firefly: FireFly,
   username: string,
   password: string,
-  address: string
-): StoredUser {
-  const normalized = username.toLowerCase();
-  const users = loadUsers();
+  walletAddress: string
+): Promise<ChainUser> {
+  const normalized = normalizeUsername(username);
+  const salt = randomSaltHex();
+  const passwordHash = `0x${hashPassword(password, salt).toString("hex")}`;
 
-  if (users.some((user) => user.username === normalized)) {
-    throw new Error("Username is already taken");
-  }
+  await firefly.invokeContractAPI(
+    userRegistryApiName(),
+    "register",
+    {
+      input: {
+        username: normalized,
+        passwordHash,
+        salt,
+      },
+      key: walletAddress,
+    },
+    { confirm: true }
+  );
 
-  const salt = randomBytes(16).toString("hex");
-  const user: StoredUser = {
+  return {
     username: normalized,
-    passwordHash: hashPassword(password, salt),
+    address: walletAddress,
+    passwordHash,
     salt,
-    address,
-    createdAt: new Date().toISOString(),
   };
-
-  users.push(user);
-  saveUsers(users);
-  return user;
 }
 
-export function updateUserAddress(username: string, address: string): StoredUser {
-  const normalized = username.toLowerCase();
-  const users = loadUsers();
-  const index = users.findIndex((user) => user.username === normalized);
-
-  if (index === -1) {
-    throw new Error(`User '${username}' not found`);
-  }
-
-  users[index] = { ...users[index], address };
-  saveUsers(users);
-  return users[index];
+export async function updateUserWallet(
+  firefly: FireFly,
+  username: string,
+  newWallet: string
+): Promise<void> {
+  await firefly.invokeContractAPI(
+    userRegistryApiName(),
+    "adminUpdateWallet",
+    {
+      input: {
+        username: normalizeUsername(username),
+        newWallet,
+      },
+      key: config.ADMIN_ADDRESS,
+    },
+    { confirm: true }
+  );
 }

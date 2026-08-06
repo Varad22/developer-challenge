@@ -1,13 +1,13 @@
 import FireFly from "@hyperledger/firefly-sdk";
-import movieRatings from "../../solidity/artifacts/contracts/MovieRatings.sol/MovieRatings.json";
+import userRegistry from "../../solidity/artifacts/contracts/UserRegistry.sol/UserRegistry.json";
 import { config } from "./config";
 
-export function ffiName(): string {
-  return `movieRatingsFFI-${config.VERSION}`;
+export function userRegistryFfiName(): string {
+  return `userRegistryFFI-${config.VERSION}`;
 }
 
-export function apiName(): string {
-  return `movieRatingsApi-${config.VERSION}`;
+export function userRegistryApiName(): string {
+  return `userRegistryApi-${config.VERSION}`;
 }
 
 function isConflict(error: unknown): boolean {
@@ -26,16 +26,16 @@ async function listContractInterfaces(): Promise<Array<{ id: string; name: strin
 }
 
 async function ensureContractInterface(firefly: FireFly): Promise<string> {
-  const name = ffiName();
+  const name = userRegistryFfiName();
 
   try {
     const generatedFFI = await firefly.generateContractInterface({
       name,
       namespace: config.NAMESPACE,
       version: "1.0",
-      description: "Deployed MovieRatings contract",
+      description: "Deployed UserRegistry contract",
       input: {
-        abi: movieRatings.abi,
+        abi: userRegistry.abi,
       },
     });
 
@@ -67,7 +67,7 @@ async function ensureContractInterface(firefly: FireFly): Promise<string> {
 }
 
 async function ensureContractApi(firefly: FireFly, interfaceId: string): Promise<void> {
-  const api = apiName();
+  const api = userRegistryApiName();
 
   try {
     await firefly.createContractAPI(
@@ -76,13 +76,15 @@ async function ensureContractApi(firefly: FireFly, interfaceId: string): Promise
           id: interfaceId,
         },
         location: {
-          address: config.MOVIE_RATINGS_ADDRESS,
+          address: config.USER_REGISTRY_ADDRESS,
         },
         name: api,
       },
       { confirm: true }
     );
-    console.log(`Registered contract API '${api}' at ${config.MOVIE_RATINGS_ADDRESS}.`);
+    console.log(
+      `Registered contract API '${api}' at ${config.USER_REGISTRY_ADDRESS}.`
+    );
   } catch (error) {
     if (isConflict(error)) {
       console.log(`Contract API '${api}' already exists in FireFly.`);
@@ -92,56 +94,15 @@ async function ensureContractApi(firefly: FireFly, interfaceId: string): Promise
   }
 }
 
-export async function registerContract(firefly: FireFly): Promise<void> {
-  const api = apiName();
+export async function registerUserRegistry(firefly: FireFly): Promise<void> {
   const interfaceId = await ensureContractInterface(firefly);
   await ensureContractApi(firefly, interfaceId);
-
-  for (const eventName of ["MovieAdded", "MovieRated"]) {
-    await firefly
-      .createContractAPIListener(api, eventName, {
-        topic: eventName.toLowerCase(),
-      })
-      .catch((error) => {
-        if (isConflict(error)) {
-          console.log(
-            `'${eventName}' event listener already exists in FireFly. Ignoring.`
-          );
-          return;
-        }
-        const err = JSON.parse(JSON.stringify((error as { originalError?: unknown }).originalError));
-        console.log(`Error creating listener for '${eventName}' event: ${err.message}`);
-      });
-  }
 }
 
-export function validateConfig(): string[] {
+export function validateUserRegistryConfig(): string[] {
   const issues: string[] = [];
-  if (!config.MOVIE_RATINGS_ADDRESS) {
-    issues.push("MOVIE_RATINGS_ADDRESS is not set");
-  }
   if (!config.USER_REGISTRY_ADDRESS) {
     issues.push("USER_REGISTRY_ADDRESS is not set");
   }
-  if (!config.ADMIN_ADDRESS) {
-    issues.push("ADMIN_ADDRESS is not set");
-  }
   return issues;
-}
-
-function isFireflyNotFound(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("FF10109") || message.includes("Not found");
-}
-
-export function friendlyFireflyError(error: unknown): string {
-  if (isFireflyNotFound(error)) {
-    return (
-      "FireFly contract API is not registered. This usually happens after " +
-      "'firefly reset' or 'npm run bootstrap' while the backend was still running. " +
-      "Restart the backend: cd backend && npm start"
-    );
-  }
-
-  return error instanceof Error ? error.message : "Unknown error";
 }

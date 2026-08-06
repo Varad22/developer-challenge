@@ -71,13 +71,16 @@ Private keys live in FireFly's signer. The app only stores **addresses** in conf
 
 1. User picks a username/password in the app
 2. Backend creates a new FireFly wallet via `firefly accounts create`
-3. Credentials (scrypt hash) and wallet address are stored in `backend/data/users.json`
+3. Backend submits `UserRegistry.register(...)` on-chain (username, password hash, salt)
 4. User receives a session token and can immediately rate movies
+
+Rater accounts live in the **`UserRegistry` smart contract**, not a local JSON file. After `firefly reset`, the admin rebinds a rater to a freshly provisioned wallet via `adminUpdateWallet`.
 
 **Improvements over the original demo:**
 
 - Raters are not hardcoded — anyone can register
-- Passwords are hashed (scrypt); only wallet addresses are stored alongside usernames
+- Usernames and wallet bindings are stored on-chain in `UserRegistry`
+- Password hashes are stored on-chain (demo only — visible to anyone reading the contract)
 - Rater endpoints require a session token bound to the registered wallet
 - Admin password can be set via `ADMIN_PASSWORD` env var instead of config file
 - Sessions expire after 24 hours
@@ -104,8 +107,7 @@ The smart contract already enforces `msg.sender` for ratings and admin-only movi
 
 | Source | Purpose |
 |--------|---------|
-| `backend/config.json` | Admin address, FireFly host, local defaults (gitignored) |
-| `backend/data/users.json` | Registered raters: username, password hash, wallet address (gitignored) |
+| `backend/config.json` | Admin address, contract addresses, FireFly host (gitignored) |
 | `.env` / env vars | Secrets and environment overrides |
 | `deployments/<stack>.json` | Deploy artifact: contract address, admin, timestamp |
 

@@ -12,13 +12,14 @@ import {
 import { config } from "./config";
 import { createStackAccount, ensureWalletOnStack } from "./firefly-accounts";
 import { apiName, friendlyFireflyError, registerContract, validateConfig } from "./firefly-setup";
+import { registerUserRegistry } from "./user-registry-setup";
 import {
   countUsers,
-  createUser,
   findUser,
+  registerUser,
+  updateUserWallet,
   validatePassword,
   validateUsername,
-  updateUserAddress,
   verifyPassword,
 } from "./users";
 
@@ -61,14 +62,20 @@ app.post("/api/rater/register", async (req, res) => {
     return;
   }
 
-  if (findUser(username)) {
-    res.status(409).send({ error: "Username is already taken" });
-    return;
-  }
-
   try {
+    const existing = await findUser(firefly, username);
+    if (existing) {
+      res.status(409).send({ error: "Username is already taken" });
+      return;
+    }
+
     const account = createStackAccount();
-    const user = createUser(username, password, account.address);
+    const user = await registerUser(
+      firefly,
+      username,
+      password,
+      account.address
+    );
     const token = createRaterSession(user.username, user.address);
 
     res.status(201).send({
@@ -82,30 +89,37 @@ app.post("/api/rater/register", async (req, res) => {
   }
 });
 
-app.post("/api/rater/login", (req, res) => {
+app.post("/api/rater/login", async (req, res) => {
   const username = String(req.body.username ?? "").trim();
   const password = String(req.body.password ?? "");
-  let user = findUser(username);
 
-  if (!user || !verifyPassword(password, user)) {
-    res.status(401).send({ error: "Invalid username or password" });
-    return;
+  try {
+    const user = await findUser(firefly, username);
+    if (!user || !verifyPassword(password, user)) {
+      res.status(401).send({ error: "Invalid username or password" });
+      return;
+    }
+
+    const wallet = ensureWalletOnStack(user.address);
+    let address = user.address;
+    if (wallet.address.toLowerCase() !== user.address.toLowerCase()) {
+      await updateUserWallet(firefly, user.username, wallet.address);
+      address = wallet.address;
+      console.log(
+        `Re-provisioned on-chain wallet for '${user.username}': ${address}`
+      );
+    }
+
+    const token = createRaterSession(user.username, address);
+    res.send({
+      token,
+      username: user.username,
+      address,
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Login failed";
+    res.status(500).send({ error: message });
   }
-
-  const wallet = ensureWalletOnStack(user.address);
-  if (wallet.address.toLowerCase() !== user.address.toLowerCase()) {
-    user = updateUserAddress(user.username, wallet.address);
-    console.log(
-      `Re-provisioned wallet for '${user.username}': ${wallet.address}`
-    );
-  }
-
-  const token = createRaterSession(user.username, user.address);
-  res.send({
-    token,
-    username: user.username,
-    address: user.address,
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -134,8 +148,11 @@ app.get("/api/health", async (_req, res) => {
       namespace: config.NAMESPACE,
       reachable: fireflyReachable,
     },
-    contract: config.MOVIE_RATINGS_ADDRESS || null,
-    registeredRaters: countUsers(),
+    contracts: {
+      movieRatings: config.MOVIE_RATINGS_ADDRESS || null,
+      userRegistry: config.USER_REGISTRY_ADDRESS || null,
+    },
+    registeredRaters: ok ? await countUsers(firefly) : 0,
     issues,
   });
 });
@@ -259,10 +276,10 @@ app.post("/api/movies/:movieId/ratings", async (req, res) => {
   try {
     const wallet = ensureWalletOnStack(session.address);
     if (wallet.address.toLowerCase() !== session.address.toLowerCase()) {
+      await updateUserWallet(firefly, session.username, wallet.address);
       session.address = wallet.address;
-      updateUserAddress(session.username, wallet.address);
       console.log(
-        `Re-provisioned wallet for '${session.username}': ${wallet.address}`
+        `Re-provisioned on-chain wallet for '${session.username}': ${wallet.address}`
       );
     }
 
@@ -294,6 +311,7 @@ async function init() {
   }
 
   await registerContract(firefly);
+  await registerUserRegistry(firefly);
 
   firefly.listen(
     {
